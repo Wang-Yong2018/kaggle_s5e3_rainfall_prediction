@@ -1,0 +1,2 @@
+# kaggle_s5e3_rainfall_prediction
+metric roc_auc
