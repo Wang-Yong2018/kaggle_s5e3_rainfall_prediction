@@ -98,6 +98,42 @@ list(train, test)|>
 - the day feature (-49)
 - cloud  (3.32)
 - pressure, mintemp, windspeed, dewpoint
+## EDA
+
+### time series EDA
+```{r}
+library(fpp3)
+
+trans_tsibble <-function(){
+
+  tmp <- bind_rows(
+    list(train=train,test=test),
+    .id = 'source') |>
+    mutate(
+      source=as.factor(source),
+      day=as.integer(day),
+      year_offset = case_when( id >=0 & id <365~1,
+                               id >=365 & id <730~2,
+                               id >=730 & id <1095~3,
+                               id >=1095 & id <1460~4,
+                               id >=1460 & id <1825~5,
+                               id >=1825 & id <2190~6,
+                               id >=2190 & id <2555~7,
+                               id >=2555 ~8))|>
+    mutate(date = make_date(year = 2020 + year_offset, # create the year column for the date
+                            month = 1,
+                            day =1) + days(day -1) # days is offset from teh start of the year
+    )
+ # select(id, day, year_offset, date)
+  
+  #tmp|>as_tsibble()
+}
+
+```
+```{r}
+bind_rows(train,test)|>glimpse()|>as_tsibble(date)
+```
+
 
 
 ## coding
