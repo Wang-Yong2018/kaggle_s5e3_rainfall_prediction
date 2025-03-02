@@ -111,7 +111,43 @@ trans_tsibble <-function(){
     .id = 'source') |>
     mutate(
       source=as.factor(source),
-      day=as.integer(day),
+      day=case_when(id==1037~307+1,
+                    id == 1132~37+1,
+                    id ==1210~115+1,
+                    id ==1132~265+1,
+                    id ==1251~156+1,
+                    id ==1284~189+1,
+                    id == 1290~195+1,
+                    id== 1312~217+1,
+                    id == 1318~223+1,
+                    id ==1346~251+1,
+                    id == 1352~257+1,
+                    id == 1367~272+1,
+                    id ==  1373~278+1,
+                    id ==1380~285+1,
+                    id == 1382~287+1,
+                    id ==1388~293+1,
+                    id == 1395~300+1,
+                    id == 1400~305+1,
+                    id == 1403~308+1,
+                    id ==1406~311+1,
+                    id == 1404~309+1,
+                    id == 1407~312+1,
+                    id == 1409~314+1,
+                    id == 1414~319+1,
+                    id == 1416~321+1,
+                    id ==1420 ~325+1,
+                    id == 1428~333+1,
+                    id ==1430~335+1,
+                    id ==1438~343+1,
+                    id == 1439~344+1,
+                    id == 1445 ~ 350+1,
+                    id == 1452 ~ 357 +1,
+                    id == 1453 ~ 358+1,
+                    id == 1457 ~ 362+1,
+                    id == 1458 ~ 363+1,
+                    id == 1459 ~ 364+1,
+                    .default=day),
       year_offset = case_when( id >=0 & id <365~1,
                                id >=365 & id <730~2,
                                id >=730 & id <1095~3,
@@ -124,14 +160,15 @@ trans_tsibble <-function(){
                             month = 1,
                             day =1) + days(day -1) # days is offset from teh start of the year
     )
- # select(id, day, year_offset, date)
-  
-  #tmp|>as_tsibble()
+  tmp|>
+    as_tsibble(index=date)
 }
 
+ts_df <- trans_tsibble()
 ```
+#### plot ts
 ```{r}
-bind_rows(train,test)|>glimpse()|>as_tsibble(date)
+ts_df |> autoplot(cloud)
 ```
 
 
