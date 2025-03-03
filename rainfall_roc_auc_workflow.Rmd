@@ -229,8 +229,29 @@ rcp_bs_v0 <-
   step_normalize(all_numeric_predictors())|> # Scale numeric predictors
   #step_smote(rainfall,over_ratio = 1,skip = TRUE)|>
   check_missing(all_predictors())
+rcp_bs_v0_wd <-
+  recipe(rainfall ~ ., data = train_set) |>
+  update_role(id, new_role='ID')|>
+  step_rm(date,year_offset)|>
+  step_impute_linear(winddirection)|>
+  #step_impute_median(all_numeric_predictors())|> 
+  step_log(all_numeric_predictors(),offset = 1, skip = FALSE) |>
+  # process the logical feature to factor feature
+  step_bin2factor(all_logical_predictors())|>
+  # proceeding the convert the character feature to factorical feature
+  step_novel(all_nominal_predictors())|>
+  step_unknown(all_nominal_predictors()) |>
+  step_other(all_nominal_predictors())|>
+  step_dummy(all_nominal_predictors(),one_hot = TRUE) |>
+  step_nzv(all_predictors())|>
+  #step_corr(all_numeric_predictors())|>
+  step_normalize(all_numeric_predictors())|> # Scale numeric predictors
+  #step_smote(rainfall,over_ratio = 1,skip = TRUE)|>
+  check_missing(all_predictors())
 
 ```
+
+
 
 #### 4.1 v1 base_line - bad
 ```{r}
@@ -388,11 +409,12 @@ set.seed(1234)
 library(future)
 library(furrr)
 selected_rcps <- list(bs_v0=rcp_bs_v0,
-                      bs_v1=rcp_bs_v1#, # is significanttly change the data , and performance is descress . give it up.
+                      bs_v0_wd=rcp_bs_v0_wd
+                      #bs_v1=rcp_bs_v1#, # is significanttly change the data , and performance is descress . give it up.
                       #bs_v2=rcp_bs_v2
                       )
 plan(multisession,workers = 5)
-#selected_rcps|>map(\(rcp_item) rcp_item|>prep()|>bake(new_data=train)|>summary())
+selected_rcps|>map(\(rcp_item) rcp_item|>prep()|>bake(new_data=train_set)|>summary())
 plan(sequential)
 ```
 
@@ -462,7 +484,7 @@ set.seed(1234)
 #furrr::future_map_dfr(\(rcp_item) 
 simple_wf_fit <- 
   workflow() |>
-  add_recipe(rcp_bs_v1) |>
+  add_recipe(rcp_bs_v0) |>
   add_model(glm_eng)|>
   last_fit(df_split,
            metrics=rocauc_metrics)

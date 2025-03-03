@@ -1,0 +1,31 @@
+# load environment
+```{r}
+library(tidyverse)
+library(purrr)
+```
+
+# load data 
+```{r}
+csv_list <- list('8573'="submission_8573.csv",
+                 '8610'="submission_8610.csv",
+                 '8632'="submission_8632.csv",
+                 '8648'="submission_8648.csv")
+df <- 
+  csv_list |> 
+  map_dfr(\(csv_file) read_csv(csv_file,show_col_types = FALSE),.id='source')|>
+  mutate(source=as.factor(source))
+```
+
+## plot the roc_auc difference
+
+```{r}
+
+
+# "8573" "8610" "8632" "8648"
+df |>
+  filter(source %in% c('8648','8573')) |>
+  ggplot(aes(x=id, y=rainfall, color=source)) +
+  geom_point()
+
+```data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABIAAAASCAYAAABWzo5XAAAAbElEQVR4Xs2RQQrAMAgEfZgf7W9LAguybljJpR3wEse5JOL3ZObDb4x1loDhHbBOFU6i2Ddnw2KNiXcdAXygJlwE8OFVBHDgKrLgSInN4WMe9iXiqIVsTMjH7z/GhNTEibOxQswcYIWYOR/zAjBJfiXh3jZ6AAAAAElFTkSuQmCC
+
