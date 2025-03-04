@@ -18,6 +18,10 @@ Evaluatioin metric:
   roc_auc, percent of rain probability.
   sample_submission.csv : 0.5. it is value is 0. I tried change it to 1, the score is 0.5 as well.
   kaggle best score is 0.87 in the begining.
+  
+Notice:
+- from small data, data usage is as important as feature engineering. cv with repeate could slightly reduce the variance(std_err). as side effect, the metric might be improve a bit as well.
+- in last stage, consider change cv =10, repeate = 5. it is computation expensive task. only do at final stage.
 
 ## librar y & load_data
 
@@ -199,12 +203,17 @@ ts_df |>as_tibble()|>
 
 ```{r}
 set.seed(1234)
-train <- ts_df |> as_tibble() |>filter(source=='train')|>select(-source)
-df_split <- initial_time_split(train, prop = 0.8)
- train_set <- training(df_split)
- test_set <- testing(df_split)
-#cv_folds <- vfold_cv(train_set,v = 10,strata=rainfall)
-cv_folds <- train_set |> sliding_period(index=date, period='year')
+#train <- ts_df |> as_tibble() |>filter(source=='train')|>select(-source)
+# df_split <- initial_time_split(train, prop = 0.8)
+df_split <- initial_split(train, prop = 0.8, strata = rainfall)
+train_set <- training(df_split)
+test_set <- testing(df_split)
+cv_folds <- vfold_cv(train_set,
+                     v = 5
+                     ,
+                     repeats = 1,
+                     strata = rainfall)
+#cv_folds <- train_set |> sliding_period(index=date, period='year')
 ```
 
 ### 4. Preprocessing Recipe ----
@@ -214,7 +223,7 @@ cv_folds <- train_set |> sliding_period(index=date, period='year')
 rcp_bs_v0 <-
   recipe(rainfall ~ ., data = train_set) |>
   update_role(id, new_role='ID')|>
-  step_rm(date,year_offset)|>
+  #step_rm(date,year_offset)|>
   step_impute_median(all_numeric_predictors())|> 
   step_log(all_numeric_predictors(),offset = 1, skip = FALSE) |>
   # process the logical feature to factor feature
@@ -229,10 +238,14 @@ rcp_bs_v0 <-
   step_normalize(all_numeric_predictors())|> # Scale numeric predictors
   #step_smote(rainfall,over_ratio = 1,skip = TRUE)|>
   check_missing(all_predictors())
-rcp_bs_v0_wd <-
+```
+
+#### 4.0 v0_wd_smote
+```{r}
+rcp_bs_v0_wd_smote <-
   recipe(rainfall ~ ., data = train_set) |>
   update_role(id, new_role='ID')|>
-  step_rm(date,year_offset)|>
+  #step_rm(date,year_offset)|>
   step_impute_linear(winddirection)|>
   #step_impute_median(all_numeric_predictors())|> 
   step_log(all_numeric_predictors(),offset = 1, skip = FALSE) |>
@@ -246,7 +259,7 @@ rcp_bs_v0_wd <-
   step_nzv(all_predictors())|>
   #step_corr(all_numeric_predictors())|>
   step_normalize(all_numeric_predictors())|> # Scale numeric predictors
-  #step_smote(rainfall,over_ratio = 1,skip = TRUE)|>
+  step_smote(rainfall,over_ratio = 1,skip = TRUE)|>
   check_missing(all_predictors())
 
 ```
@@ -292,7 +305,6 @@ rcp_bs_v1 <-
   step_normalize(all_numeric_predictors())|> # Scale numeric predictors
 
   check_missing(all_predictors())
-rcp_bs_v1 |>prep()|juice()
 ```
 
 #### 4.2 v2 base_line - 
@@ -408,14 +420,14 @@ rcp_bs_v2 <-
 set.seed(1234)
 library(future)
 library(furrr)
-selected_rcps <- list(bs_v0=rcp_bs_v0,
-                      bs_v0_wd=rcp_bs_v0_wd
+selected_rcps <- list(bs=rcp_bs_v0
+                      #bs_wd_smote=rcp_bs_v0_wd_smote
                       #bs_v1=rcp_bs_v1#, # is significanttly change the data , and performance is descress . give it up.
                       #bs_v2=rcp_bs_v2
                       )
-plan(multisession,workers = 5)
-selected_rcps|>map(\(rcp_item) rcp_item|>prep()|>bake(new_data=train_set)|>summary())
-plan(sequential)
+#plan(multisession,workers = 5)
+#selected_rcps|>map(\(rcp_item) rcp_item|>prep()|>bake(new_data=train_set)|>summary())
+#plan(sequential)
 ```
 
 ### 5. Model Specification ----
@@ -431,23 +443,25 @@ lgbm_eng<-
    parsnip::boost_tree(
       trees = 700, # Number of trees
       learn_rate = 0.01,
-      #tree_depth =6,
+      tree_depth =10,
       loss_reduction = 0.001,
-      #sample_size = 0.75, # Added sample_size
+      stop_iter = 50,  
+      sample_size = 0.9, # Added sample_size
       #tree_depth = tune(),
-      
-      #mtry = tune(),
-      #min_n = 20
+      mtry = 0.5,
+      min_n = 48
    ) |>
    set_mode("classification")|>
    set_engine("lightgbm",
               #metric='roc_auc', 
-              #num_leaves = 31,
-              num_threads = 4,
+              num_leaves = 31,
+              counts = FALSE,
+              metric = "auc",              # 优化目标
               verbose=1) 
 
 rf_eng<- rand_forest( trees = 700, 
                       #learn_rate = 0.01,
+                      #sample_size=0.8,
                       #mtry=tune(), 
                       min_n=30) |>
   set_engine("ranger",num.threads=4)|>
@@ -479,14 +493,39 @@ rocauc_metrics <- metric_set(roc_auc) # main goal is roc_auc, accuracy is just f
 
 ```{r}
 set.seed(1234)
+
+lgbm_eng<-
+   parsnip::boost_tree(
+      trees = 1000, # Number of trees
+      #learn_rate = 0.01,
+      tree_depth =6,
+      #loss_reduction = 0.001,
+      #stop_iter = 50,  
+      sample_size = 0.8, # Added sample_size
+      #tree_depth = tune(),
+      #mtry = 0.5,
+      #min_n = 48
+   ) |>
+   set_mode("classification")|>
+   set_engine("lightgbm",
+              #metric='roc_auc', 
+              num_leaves = 31,
+              #counts = FALSE,
+              #metric = "auc",              # 优化目标
+              verbose=1) 
+
+ctrl <- control_resamples(save_pred = TRUE, save_workflow = TRUE,verbose=TRUE)
 #plan(multisession, workers = 1)  
 #selected_rcps |>
 #furrr::future_map_dfr(\(rcp_item) 
 simple_wf_fit <- 
   workflow() |>
-  add_recipe(rcp_bs_v0) |>
-  add_model(glm_eng)|>
-  last_fit(df_split,
+  add_recipe(rcp_bs_v0_wd_smote) |>
+  add_model(lgbm_eng)|>
+  # fit(train_set)
+  fit_resamples(cv_folds,
+    # last_fit(df_split,
+          control = ctrl,
            metrics=rocauc_metrics)
 #plan(sequential)
  simple_wf_fit |> collect_metrics()
@@ -510,7 +549,10 @@ wfs_result <-
                metrics =rocauc_metrics,
                control = ctrl
                )
-wfs_result|>collect_metrics()  |> filter(.metric=='roc_auc')
+wfs_result|> 
+  collect_metrics()  |>
+  filter(.metric=='roc_auc')|>
+  select(wflow_id, model, .metric,mean, n, std_err)
   
 plan(sequential)
 ```
@@ -539,31 +581,63 @@ autoplot(combined_fit)
 ```{r}
 tune_lgbm_spec <-
   boost_tree(
-    trees = tune(),             # Number of trees (boosting rounds)
-    mtry = tune(),              # Number of features to consider at each split
-    learn_rate = tune(),        # Learning rate (shrinkage)
+    trees =tune(),             # Number of trees (boosting rounds)
+    #mtry = tune(),              # Number of features to consider at each split
+    learn_rate = 0.01,        # Learning rate (shrinkage)
     tree_depth = tune(),         # Maximum depth of each tree
     min_n = tune(),            # Minimum number of data points in a node
-    loss_reduction = tune()      # Complexity parameter
+    sample_size= tune(),
+    loss_reduction = 0.0001      # Complexity parameter
   ) %>%
   set_engine("lightgbm",
-             num_leave=tune()) %>%
+             metric='auc',
+             num_leaves=tune(),
+             num_threads=8) %>%
   set_mode("classification")
+```
 
+
+```{r}
+set.seed(1234)
+
+tune_lgbm_grid <-
+  tune_lgbm_spec %>%
+  extract_parameter_set_dials()|> 
+  update( trees = trees(range = c(700, 1500)),  # Wider range
+          #mtry = mtry(range = c(0.5, 0.9)),    # Wider range
+          #learn_rate = learn_rate(range = c(-3, -1)),  # Log scale
+          sample_size= sample_prop(range=c(0.6,0.9)),
+          tree_depth = tree_depth(range = c(6, 12)),  # Wider range
+          min_n = min_n(range = c(30, 100)),   # Wider range
+          #loss_reduction = loss_reduction(range = c(-4, -1)), # Wider range
+          num_leaves = num_leaves(range=c(31,100))            # 直接设定树数量范围
+          ) |>
+   grid_space_filling(size = 5)
+
+ctrl <- control_race(verbose_elim = TRUE,verbose=TRUE)
+tune_res <- 
+  workflow()|>
+  add_model(tune_lgbm_spec)|>
+  add_recipe(rcp_bs_v0_wd_smote)|>
+   tune_race_anova( resamples = cv_folds, grid=tune_lgbm_grid,control=ctrl)
+```
+
+
+```{r}
 tune_lgbm_grid <- grid_space_filling(
   trees(range = c(500, 1000)),  # Wider range
   #mtry = mtry(range = c(0.5, 0.9)),    # Wider range
   learn_rate(range = c(-3, -1)),  # Log scale
   tree_depth(range = c(5, 12)),  # Wider range
   min_n(range = c(10, 60)),   # Wider range
-  loss_reduction(range = c(0, 0.1)), # Wider range
+  loss_reduction(range = c(-4, -1)), # Wider range
   num_leaves(range=c(31,100)),
-  size = 50 # Increased number of combinations to try
+  size = 30 # Increased number of combinations to try
 )
 
 tune_lgbm_workflow <- 
   workflow_set(preproc = selected_rcps,
-               models = list(lgb=lgbm_eng) ) 
+               models = list(lgb=tune_lgbm_spec) ) 
 
 # Tune the model using ANOVA Race
 tune_results <-  tune_lgbm_workflow |>
@@ -633,10 +707,10 @@ combined_test_result|>roc_auc(rainfall, .pred_1,event_level = 'second')
 set.seed(1234)
 library(future)
 plan(multisession,workers = 12)
-#final_model <- combined_fit#simple_wf_fit|>extract_workflow()
-final_model <- simple_wf_fit|>extract_workflow()
+final_model <- combined_fit#simple_wf_fit|>extract_workflow()
+#final_model <- simple_wf_fit|>extract_workflow()
 final_predictions <- final_model |>
-   predict(new_data = ts_df|>as_tibble()|>filter(source=='test'),
+   predict(new_data = test,
            type='prob') 
 plan(sequential)
 
