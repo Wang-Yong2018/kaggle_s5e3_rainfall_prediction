@@ -434,27 +434,27 @@ selected_rcps <- list(bs=rcp_bs_v0
 
 ```{r}
 glm_eng <- 
-  logistic_reg(penalty = 0.05,
+  logistic_reg(penalty = 0.01623777,
                mixture = 0.05) |>  # Example penalty and mixture values
   set_engine("glmnet") |>
   set_mode("classification")    # Specify classification
 
 lgbm_eng<-
    parsnip::boost_tree(
-      trees = 700, # Number of trees
-      learn_rate = 0.01,
-      tree_depth =10,
+      trees = 500, # Number of trees
+      #learn_rate = 0.01,
+      tree_depth =5,
       loss_reduction = 0.001,
       stop_iter = 50,  
-      sample_size = 0.9, # Added sample_size
+      #sample_size = 0.9, # Added sample_size
       #tree_depth = tune(),
-      mtry = 0.5,
-      min_n = 48
+      #mtry = 0.5,
+      min_n = 200
    ) |>
    set_mode("classification")|>
    set_engine("lightgbm",
               #metric='roc_auc', 
-              num_leaves = 31,
+              num_leaves = 20,
               counts = FALSE,
               metric = "auc",              # 优化目标
               verbose=1) 
@@ -462,23 +462,54 @@ lgbm_eng<-
 rf_eng<- rand_forest( trees = 700, 
                       #learn_rate = 0.01,
                       #sample_size=0.8,
-                      #mtry=tune(), 
-                      min_n=30) |>
+                      #mtry=10, 
+                      min_n=200) |>
   set_engine("ranger",num.threads=4)|>
   set_mode("classification") 
 
-xgb_eng<- parsnip::boost_tree( trees = 700, 
+xgb_eng<- parsnip::boost_tree( trees = 500, 
                       learn_rate = 0.01,
                       loss_reduction = 0.001,
                       sample_size = 0.8, # Added sample_size
                       #mtry=tune(),
-                      min_n=20) |>
+                      min_n=70) |>
   set_engine("xgboost",num.threads=8)|>
   set_mode("classification")
+#[1] "use_C5.0"             "use_cubist"           "use_earth"            "use_glmnet"           "use_kernlab_svm_poly" "use_kernlab_svm_rbf" 
+#[7] "use_kknn"             "use_ranger"           "use_xgboost" 
+
+c50_eng <- boost_tree() |>
+  set_mode('classification')|>
+  set_engine('C5.0')
+
+earth_eng <-  # good model base score 0.8718
+  mars() %>% 
+  set_mode("classification") %>% 
+  set_engine("earth") 
+
+svm_eng <- 
+  svm_rbf(
+    cost = 0.001, 
+    rbf_sigma = 0.01
+    ) %>% 
+  set_mode("classification") 
+
+kknn_eng <- 
+  nearest_neighbor(neighbors = 5, 
+                   #weight_func = tune()
+                   ) %>% 
+  set_mode("classification") %>% 
+  set_engine("kknn") 
+
 selected_eng <- list(glm=glm_eng,
                      rf=rf_eng,
-                     lgbm=lgbm_eng,
-                     xgb=xgb_eng
+                     #lgbm=lgbm_eng,
+                     xgb=xgb_eng,
+                     #c50=c50_eng,
+                     earth= earth_eng,
+                     #kknn=kknn_eng,
+                     svm=svm_eng
+                     
                      )
 
 ```
@@ -494,37 +525,13 @@ rocauc_metrics <- metric_set(roc_auc) # main goal is roc_auc, accuracy is just f
 ```{r}
 set.seed(1234)
 
-lgbm_eng<-
-   parsnip::boost_tree(
-      trees = 1000, # Number of trees
-      #learn_rate = 0.01,
-      tree_depth =6,
-      #loss_reduction = 0.001,
-      #stop_iter = 50,  
-      sample_size = 0.8, # Added sample_size
-      #tree_depth = tune(),
-      #mtry = 0.5,
-      #min_n = 48
-   ) |>
-   set_mode("classification")|>
-   set_engine("lightgbm",
-              #metric='roc_auc', 
-              num_leaves = 31,
-              #counts = FALSE,
-              #metric = "auc",              # 优化目标
-              verbose=1) 
-
-ctrl <- control_resamples(save_pred = TRUE, save_workflow = TRUE,verbose=TRUE)
-#plan(multisession, workers = 1)  
-#selected_rcps |>
-#furrr::future_map_dfr(\(rcp_item) 
 simple_wf_fit <- 
   workflow() |>
   add_recipe(rcp_bs_v0_wd_smote) |>
-  add_model(lgbm_eng)|>
+  add_model(svm_eng)|>
   # fit(train_set)
   fit_resamples(cv_folds,
-    # last_fit(df_split,
+  #  last_fit(df_split,
           control = ctrl,
            metrics=rocauc_metrics)
 #plan(sequential)
@@ -552,7 +559,8 @@ wfs_result <-
 wfs_result|> 
   collect_metrics()  |>
   filter(.metric=='roc_auc')|>
-  select(wflow_id, model, .metric,mean, n, std_err)
+  select(wflow_id, model, .metric,mean, n, std_err
+         )
   
 plan(sequential)
 ```
@@ -577,7 +585,7 @@ autoplot(combined_fit)
 ```
 
 ### 7. Tuning Grid ----
-
+#### tune lgbm
 ```{r}
 tune_lgbm_spec <-
   boost_tree(
@@ -650,6 +658,81 @@ tune_results <-  tune_lgbm_workflow |>
                )
 tune_results|>rank_results()
 
+```
+
+
+#### tune glmnet
+```{r}
+
+glmnet_recipe <- rcp_bs_v0_wd_smote
+
+glmnet_spec <- 
+  multinom_reg(penalty = tune(), mixture = tune()) %>% 
+  set_mode("classification") %>% 
+  set_engine("glmnet") 
+
+glmnet_workflow <- 
+  workflow() %>% 
+  add_recipe(glmnet_recipe) %>% 
+  add_model(glmnet_spec) 
+
+glmnet_grid <- tidyr::crossing(penalty = 10^seq(-4, -1, length.out = 20), 
+                               mixture = c(0.05, 0.2, 0.4, 0.6, 0.8, 1)) 
+
+
+glmnet_tune <- 
+  tune_grid(glmnet_workflow, resamples =cv_folds, grid = glmnet_grid,
+            control=control_grid(save_pred = TRUE, 
+                                 verbose = TRUE,
+                                 allow_par = F)) # Keep predictions
+
+glmnet_tune |>show_best()
+```
+#### tune lgbm
+```{r}
+lgbm_recipe <- rcp_bs_v0_wd_smote 
+
+lgbm_spec <-  
+  boost_tree(
+    trees = tune(),
+    tree_depth = tune(),
+    learn_rate = tune(),
+    mtry = tune(),
+    min_n = tune(), 
+    loss_reduction = numeric() ) |> 
+  set_engine("lightgbm",
+             max_bin=tune(),
+              # reg_lambda = tune(),  
+              # max_bin = tune(),
+              # min_sum_hessian_in_leaf = tune(),
+             #bagging_fraction = tune()
+            )|>
+  set_mode("classification")
+
+lgbm_workflow <- 
+  workflow() |> 
+  add_recipe(lgbm_recipe) |>
+  add_model(lgbm_spec) 
+lgbm_grid <- lgbm_workflow |>
+  extract_parameter_set_dials( ) |>
+  update(
+    trees= trees(range=c(300,700)),
+    tree_depth = tree_depth(range = c(3, 8)),  # 原默认范围可能更宽，此处缩小
+    learn_rate = learn_rate(range = c(-2, -1)), # 指数范围：0.01 ~ 0.1
+    mtry = mtry(range=c(5,11)),
+    max_bin = integer(c(31,128)),
+    min_n = min_n(range = c(10, 50))
+  )|>
+  grid_space_filling(size=5)
+
+set.seed(1234)
+lgbm_tune <-
+  tune_grid(lgbm_workflow, 
+            resamples = cv_folds, 
+            grid =lgbm_grid,
+            control=control_race(save_pred = TRUE, save_workflow = TRUE,verbose=TRUE))
+
+lgbm_tune |> show_best()
 ```
 
 ### 8. Cross-Validation ----
