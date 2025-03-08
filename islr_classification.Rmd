@@ -48,13 +48,25 @@ test <-
                   show_col_types = FALSE)
 submission <-  readr::read_csv(file.path(data_path, 'sample_submission.csv'),show_col_types = FALSE)
 ```
-  
+
+## EDA  
 #### correlation EDA
 ```{r}
 train |>select(-rainfall,-id,-day) |>correlate()|>network_plot()
 test  |>select(-id,-day) |>correlate()|>network_plot()
 ```
+####
+```{r fig.width=6, fig.height=36}
+### fig
+combined_df <- list('train' = train, 'test'= test) |> bind_rows(.id='source')
+combined_df |> pivot_longer(cols=2:13) |>
+  ggplot(aes(x=value,color=source)) +
+  geom_boxplot() +
+  facet_wrap(vars(name),nrow=12,scales='free_x')
+```
 
+## Model
+### split & cv
 
 ```{r}
 set.seed(1234)
@@ -67,7 +79,8 @@ cv_folds <- vfold_cv(train_set,
                      strata = rainfall)
 ```
 
-## logistic Regression
+
+### logistic Regression
 
 ```{r cache=FALSE}
 lr_spec <- logistic_reg( )|>
