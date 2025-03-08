@@ -209,8 +209,7 @@ df_split <- initial_split(train, prop = 0.8, strata = rainfall)
 train_set <- training(df_split)
 test_set <- testing(df_split)
 cv_folds <- vfold_cv(train_set,
-                     v = 5
-                     ,
+                     v = 10,
                      repeats = 1,
                      strata = rainfall)
 #cv_folds <- train_set |> sliding_period(index=date, period='year')
