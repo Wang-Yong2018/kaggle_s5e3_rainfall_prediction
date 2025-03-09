@@ -49,21 +49,24 @@ test <-
 submission <-  readr::read_csv(file.path(data_path, 'sample_submission.csv'),show_col_types = FALSE)
 ```
 
-## EDA  
+## EDA
 #### correlation EDA
 ```{r}
 train |>select(-rainfall,-id,-day) |>correlate()|>network_plot()
 test  |>select(-id,-day) |>correlate()|>network_plot()
 ```
+
+
 ####
+
 ```{r fig.width=6, fig.height=36}
-### fig
 combined_df <- list('train' = train, 'test'= test) |> bind_rows(.id='source')
 combined_df |> pivot_longer(cols=2:13) |>
   ggplot(aes(x=value,color=source)) +
   geom_boxplot() +
   facet_wrap(vars(name),nrow=12,scales='free_x')
 ```
+
 
 ## Model
 ### split & cv
@@ -83,81 +86,129 @@ cv_folds <- vfold_cv(train_set,
 ### logistic Regression
 
 ```{r cache=FALSE}
-lr_spec <- logistic_reg( )|>
-  set_engine('glm')|>
-  set_mode('classification')
+
 ```
 
 
 ```{r cache=FALSE}
-lr_rcp_bs <- 
+v0_rcp_bs <- 
   recipe(rainfall ~ ., data = train_set) #|>
-  #update_role(id, new_role='ID')|>
-  #step_rm(date,year_offset)|>
-  #step_impute_median(all_numeric_predictors())|> 
-  #step_log(all_numeric_predictors(),offset = 1, skip = FALSE) |>
-  # process the logical feature to factor feature
-  #step_bin2factor(all_logical_predictors())|>
-  # proceeding the convert the character feature to factorical feature
-  #step_novel(all_nominal_predictors())|>
-  #step_unknown(all_nominal_predictors()) |>
-  #step_other(all_nominal_predictors())|>
-  #step_dummy(all_nominal_predictors(),one_hot = TRUE) |>
-  #step_nzv(all_predictors())|>
-  #step_corr(all_numeric_predictors())|>
-  #step_normalize(all_numeric_predictors())|> # Scale numeric predictors
 
-  #check_missing(all_predictors())
 
-v1_rcp<- lr_rcp_bs |>
-  step_rm(id,day)|>
-  #step_log(all_numeric_predictors(),offset=1)#|> # bad
+v1_rcp<- v0_rcp_bs |>
+  step_rm(id)|>
   step_impute_median(all_numeric_predictors())|> 
   step_mutate(
-   temp_range= maxtemp - mintemp,
-   heat_index= temparature+ 0.5 * (temparature- 10) * (humidity / 100),
-   dew_dep= temparature - dewpoint,
-   #cloud_sun_ratio = cloud / sunshine + 1,    
-   #pressure_change = c(NA, diff(pressure)),
-   air_density = 1.225 , 
-   wind_power = 0.5 * air_density * windspeed**3,
-   wind_direction_cat = cut(winddirection, 
-                            breaks=c(0, 90, 180, 270, 360), 
-                            labels=c("North", "East", "South", "West"), 
-                            include.lowest=TRUE),
-   cloud_humidity = cloud + humidity,
-   cloud_humidity_sunshine = cloud + humidity + sunshine,
-   cloud_x_sunshine = cloud * sunshine,
-   humidity_x_sunshine = humidity * sunshine)|>
-   step_novel(all_nominal_predictors())|>
+    temp_range= maxtemp - mintemp,
+    heat_index= temparature+ 0.5 * (temparature- 10) * (humidity / 100),
+    dew_dep= temparature - dewpoint,
+    #cloud_sun_ratio = cloud / sunshine + 1,    
+    #pressure_change = c(NA, diff(pressure)),
+    # air_density = 1.225 , 
+    # wind_power = 0.5 * air_density * windspeed**3,
+    # wind_direction_cat = cut(winddirection, 
+    #                          breaks=c(0, 90, 180, 270, 360), 
+    #                          labels=c("North", "East", "South", "West"), 
+    #                          include.lowest=TRUE),
+    # cloud_humidity = cloud + humidity,
+    # cloud_humidity_sunshine = cloud + humidity + sunshine,
+    # cloud_x_sunshine = cloud * sunshine,
+    humidity_x_sunshine = humidity * sunshine)|>
+  step_novel(all_nominal_predictors())|>
   step_unknown(all_nominal_predictors()) |>
   step_other(all_nominal_predictors())|>
+  step_BoxCox(all_numeric_predictors())|> # bad
   step_dummy(all_nominal_predictors(),one_hot = TRUE) |>
-  step_nzv(all_predictors())|>
   step_normalize(all_numeric_predictors())|>
+  step_zv(all_predictors())|>
   step_corr(all_predictors())|>
   #step_smote(rainfall,over_ratio = 1,skip = TRUE)|> # bad 
   
   check_missing(all_predictors())
-tmp_rcps <- list(bs=lr_rcp_bs,
-                 v1=v1_rcp)
 ```
 
 
 ```{r cache=FALSE}
+v2_rcp<- v0_rcp_bs |>
+  step_rm(id)|>
+  #step_lag(pressure)|>
+  step_impute_roll(all_numeric_predictors())|>
+  step_mutate(
+    temp_range= maxtemp - mintemp,
+    heat_index= temparature+ 0.5 * (temparature- 10) * (humidity / 100),
+    dew_dep= temparature - dewpoint,
+    cloud_sun_ratio = sunshine/cloud ,    
+    #pressure_change = c(NA, diff(pressure)),
+    air_density = 1.225 , 
+    wind_power = 0.5 * air_density * windspeed**3,
+     # wind_direction_cat = cut(winddirection, 
+     #                          breaks=c(0, 90, 180, 270, 360), 
+     #                          labels=c("North", "East", "South", "West"), 
+     #                          include.lowest=TRUE),
+    #cloud_humidity = cloud + humidity,
+    # cloud_humidity_sunshine = cloud + humidity + sunshine,
+     cloud_x_sunshine = cloud / sunshine,
+    humidity_x_sunshine = humidity * sunshine)|>
+  step_impute_median(all_numeric_predictors())|> 
+  step_novel(all_nominal_predictors())|>
+  step_unknown(all_nominal_predictors()) |>
+  step_other(all_nominal_predictors())|>
+  step_YeoJohnson(all_numeric_predictors())|> # bad
+  step_dummy(all_nominal_predictors(),one_hot = TRUE) |>
+  step_normalize(all_numeric_predictors())|>
+  step_zv(all_predictors())|>
+  step_corr(all_predictors())|>
+  #step_smote(rainfall,over_ratio = 1,skip = TRUE)|> # bad 
+  
+  check_missing(all_predictors())
+
+tmp_rcps <- list(
+                 v1=v1_rcp,
+                 v2=v2_rcp,
+                 v0=v0_rcp_bs
+                 )
+
+lr_spec <- logistic_reg(
+  #penalty = 0.01623777,mixture = 0.05
+  )|>
+  set_engine('glm')|>
+  set_mode('classification')
+lgbm_eng<-
+   parsnip::boost_tree(
+      trees = 500, # Number of trees
+      learn_rate = 0.01,
+      tree_depth =5,
+      loss_reduction = 0.001,
+      stop_iter = 50,  
+      #sample_size = 0.9, # Added sample_size
+      #tree_depth = tune(),
+      #mtry = 0.5,
+      min_n = 100
+   ) |>
+   set_mode("classification")|>
+   set_engine("lightgbm",
+              #metric='roc_auc', 
+              num_leaves = 20,
+              counts = FALSE,
+              num_threads=12,
+              metric = "auc",              # 优化目标
+              reg_alpha=0.01,
+              reg_lambda = 0.5,
+              verbose=1) 
+
+
+
 lr_w_fit <-
   workflow_set(preproc = tmp_rcps,
-              models=list(glm=lr_spec))|>
+              models=list(lgb=lgbm_eng))|>
   workflow_map(fn='fit_resamples',
                metrics=metric_set(roc_auc),
-               resamples=cv_folds
-               #,verbose=TRUE
+               #grid=lgbm_grid,
+               resamples=cv_folds,
+               verbose=TRUE,
                )
-lr_w_fit |> collect_metrics()|>select(wflow_id,n, .metric, mean,std_err)
+
+lr_w_fit |>
+  collect_metrics()|>
+  select(wflow_id, model,.metric,mean,n,std_err)
 ```
-
-```{r}
-train_set|>glimpse()
-
-```
-

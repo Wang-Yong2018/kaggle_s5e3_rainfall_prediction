@@ -168,21 +168,21 @@ trans_tsibble <-function(){
   tmp|>
     as_tsibble(index=date)
 }
-
-ts_df <- trans_tsibble()
-ts_df |> ggplot2::ggplot(aes(x=id, y=day,color=source)) + geom_point()
+# 
+# ts_df <- trans_tsibble()
+# ts_df |> ggplot2::ggplot(aes(x=id, y=day,color=source)) + geom_point()
 
 
 ```
 #### plot ts
 ```{r}
-ts_df |>as_tibble()|>
-  select(-any_of(c('id','day', 'rainfall','year_offset','date')))|>
-  group_by(source)|>
-  summarize_all(var)|>
-  pivot_longer(-source)|>
-  pivot_wider(names_from = source, values_from=value)|>
-  mutate(pct_change= (train-test)/train)
+# ts_df |>as_tibble()|>
+#   select(-any_of(c('id','day', 'rainfall','year_offset','date')))|>
+#   group_by(source)|>
+#   summarize_all(var)|>
+#   pivot_longer(-source)|>
+#   pivot_wider(names_from = source, values_from=value)|>
+#   mutate(pct_change= (train-test)/train)
 ```
 
 
@@ -204,7 +204,7 @@ ts_df |>as_tibble()|>
 ```{r}
 set.seed(1234)
 #train <- ts_df |> as_tibble() |>filter(source=='train')|>select(-source)
-# df_split <- initial_time_split(train, prop = 0.8)
+#df_split <- initial_time_split(train, prop = 0.8)
 df_split <- initial_split(train, prop = 0.8, strata = rainfall)
 train_set <- training(df_split)
 test_set <- testing(df_split)
@@ -224,7 +224,7 @@ rcp_bs_v0 <-
   update_role(id, new_role='ID')|>
   #step_rm(date,year_offset)|>
   step_impute_median(all_numeric_predictors())|> 
-  step_log(all_numeric_predictors(),offset = 1, skip = FALSE) |>
+  step_YeoJohnson(all_numeric_predictors()) |>
   # process the logical feature to factor feature
   step_bin2factor(all_logical_predictors())|>
   # proceeding the convert the character feature to factorical feature
@@ -238,32 +238,40 @@ rcp_bs_v0 <-
   #step_smote(rainfall,over_ratio = 1,skip = TRUE)|>
   check_missing(all_predictors())
 ```
-
-#### 4.0 v0_wd_smote
+#### 4.11 v11_box_cox
 ```{r}
-rcp_bs_v0_wd_smote <-
+rcp_v11_boxcox <-
   recipe(rainfall ~ ., data = train_set) |>
   update_role(id, new_role='ID')|>
   #step_rm(date,year_offset)|>
-  step_impute_linear(winddirection)|>
-  #step_impute_median(all_numeric_predictors())|> 
-  step_log(all_numeric_predictors(),offset = 1, skip = FALSE) |>
-  # process the logical feature to factor feature
-  step_bin2factor(all_logical_predictors())|>
-  # proceeding the convert the character feature to factorical feature
+  step_impute_median(all_numeric_predictors())|> 
+  step_mutate(
+    temp_range= maxtemp - mintemp,
+    heat_index= temparature+ 0.5 * (temparature- 10) * (humidity / 100),
+    dew_dep= temparature - dewpoint,
+    #cloud_sun_ratio = cloud / sunshine + 1,    
+    #pressure_change = c(NA, diff(pressure)),
+    # air_density = 1.225 , 
+    # wind_power = 0.5 * air_density * windspeed**3,
+    # wind_direction_cat = cut(winddirection, 
+    #                          breaks=c(0, 90, 180, 270, 360), 
+    #                          labels=c("North", "East", "South", "West"), 
+    #                          include.lowest=TRUE),
+    # cloud_humidity = cloud + humidity,
+    # cloud_humidity_sunshine = cloud + humidity + sunshine,
+    # cloud_x_sunshine = cloud * sunshine,
+    humidity_x_sunshine = humidity * sunshine)|>
   step_novel(all_nominal_predictors())|>
   step_unknown(all_nominal_predictors()) |>
   step_other(all_nominal_predictors())|>
+  step_BoxCox(all_numeric_predictors())|> # bad
   step_dummy(all_nominal_predictors(),one_hot = TRUE) |>
-  step_nzv(all_predictors())|>
-  #step_corr(all_numeric_predictors())|>
-  step_normalize(all_numeric_predictors())|> # Scale numeric predictors
-  step_smote(rainfall,over_ratio = 1,skip = TRUE)|>
+  step_impute_median(all_numeric_predictors())|> 
+  step_normalize(all_numeric_predictors())|>
+  step_zv(all_predictors())|>
+  step_corr(all_predictors())|>
   check_missing(all_predictors())
-
 ```
-
-
 
 #### 4.1 v1 base_line - bad
 ```{r}
@@ -271,11 +279,12 @@ rcp_bs_v1 <-
   recipe(rainfall ~ ., data = train_set) |>
   update_role(id, new_role='ID')|>
   #step_date(date, features=c('month','week'))|>
+  step_impute_median(all_numeric_predictors())|> 
    step_mutate(
    temp_range= maxtemp - mintemp,
    heat_index= temparature+ 0.5 * (temparature- 10) * (humidity / 100),
    dew_dep= temparature - dewpoint,
-   cloud_sun_ratio = cloud / sunshine + 1,    
+   #cloud_sun_ratio = cloud / sunshine + 1,    
    pressure_change = c(NA, diff(pressure)),
    air_density = 1.225 , 
    wind_power = 0.5 * air_density * windspeed**3,
@@ -287,11 +296,9 @@ rcp_bs_v1 <-
    cloud_humidity_sunshine = cloud + humidity + sunshine,
    cloud_x_sunshine = cloud * sunshine,
    humidity_x_sunshine = humidity * sunshine)|>
-  step_rm(date,year_offset)|>
+  #step_rm(date,year_offset)|>
   step_impute_median(all_numeric_predictors())|> 
-  step_log(all_numeric_predictors(),offset = 1, skip = FALSE) |>
-  step_lag(all_numeric_predictors(),lag =c(1))|>
-  step_impute_median(all_numeric_predictors())|> 
+  step_YeoJohnson(all_numeric_predictors()) |>
   # process the logical feature to factor feature
   step_bin2factor(all_logical_predictors())|>
   # proceeding the convert the character feature to factorical feature
@@ -308,96 +315,30 @@ rcp_bs_v1 <-
 
 #### 4.2 v2 base_line - 
 ```{r}
-# df["Temp_Range"] = df["maxtemp"] - df["mintemp"]
-#     df["Heat_Index"] = df["temparature"] + 0.5 * (df["temparature"] - 10) * (df["humidity"] / 100)    
-#     df["Dew_Dep"] = df["temparature"] - df["dewpoint"]    
-#     df["Wind_Chill"] = np.where(
-#         df["temparature"] < 10,
-#         13.12 + 0.6215 * df["temparature"] - 11.37 * df["windspeed"]**0.16 + 
-#        0.3965 * df["temparature"] * df["windspeed"]**0.16,
-#         df["temparature"]
-#     )    
-#     df["Cloud_Sun_Ratio"] = df["cloud"] / (df["sunshine"] + 1)    
-#     df["Pressure_Change"] = df["pressure"].diff().fillna(0)    
-#     air_density = 1.225  
-#     df["Wind_Power"] = 0.5 * air_density * df["windspeed"]**3         
-#     df["Wind_Direction_Cat"] = pd.cut(df["winddirection"], 
-#                                       bins=[0, 90, 180, 270, 360], 
-#                                       labels=["North", "East", "South", "West"], 
-#                                       include_lowest=True)
-# 
-#     df['cloud + humidity'] = df.cloud + df.humidity
-#     df['cloud + humidity + sunshine'] = df.cloud + df.humidity + df.sunshine
-#     df['cloud * sunshine'] = df.cloud * df.sunshine
-#     df['humidity * sunshine'] = df.humidity * df.sunshine
-# 
-#     df["HTI"] = df["temparature"] + 0.2 * df["humidity"]    
-#     df["ACI"] = (df["maxtemp"] + df["mintemp"]) / 2 - (df["humidity"] / 2) + df["dewpoint"]    
-#     df["CSI"] = (df["sunshine"] - df["cloud"]) / (df["sunshine"] + df["cloud"] + 1)  
-#     df["WCI"] = df["temparature"] - 0.5 * df["windspeed"]
-#     df['day'] = pd.to_datetime(df['day'], errors='coerce')    
-#    
-#     df['month'] = df['day'].dt.month
-#     df['day_of_week'] = df['day'].dt.dayofweek
-#     df['is_weekend'] = df['day_of_week'].isin([5, 6]).astype(int)    
-#     df['temp_range'] = df['maxtemp'] - df['mintemp']
-#     df['avg_temp'] = (df['maxtemp'] + df['mintemp']) / 2
-#     df['temp_deviation'] = df['temparature'] - df['avg_temp']   
-#   
-#     df['dew_point_depression'] = df['temparature'] - df['dewpoint']    
-#    
-#     df['wind_dir_rad'] = np.deg2rad(df['winddirection'])
-#     df['wind_dir_sin'] = np.sin(df['wind_dir_rad'])
-#     df['wind_dir_cos'] = np.cos(df['wind_dir_rad'])
-#     df.drop(columns=['wind_dir_rad'], inplace=True)   
-#     df['wind_chill'] = 13.12 + 0.6215 * df['temparature'] - 11.37 * (df['windspeed']**0.16) + 0.3965 * df['temparature'] * (df['windspeed']**0.16)
-#     df['humidity_temp'] = df['humidity'] * df['temparature']
-#     df['cloud_sunshine'] = df['cloud'] * df['sunshine']
-#     df['rolling_temp_mean'] = df['avg_temp'].rolling(window=7).mean()
-#     df['rolling_wind_mean'] = df['windspeed'].rolling(window=7).mean()
-#     df['rolling_humidity_mean'] = df['humidity'].rolling(window=7).mean()
-#     df['temp_lag_1'] = df['avg_temp'].shift(1)
-#     df['humidity_lag_1'] = df['humidity'].shift(1)
-#     df['windspeed_lag_1'] = df['windspeed'].shift(1)
-#     df['pressure_temp_interaction'] = df['pressure'] * df['avg_temp']
-#     df['windspeed_temp_interaction'] = df['windspeed'] * df['avg_temp']
-#     df['sunshine_cloud_interaction'] = df['sunshine'] * df['cloud']
-#     df['season'] = df['month'].apply(lambda x: 'Spring' if 3 <= x <= 5 else
-#                                       'Summer' if 6 <= x <= 8 else
-#                                       'Autumn' if 9 <= x <= 11 else 'Winter')
-#     for c in ['pressure', 'maxtemp', 'temparature', 'humidity']:
-#         for gap in [1]:
-#             df[c+f"_shift{gap}"] = df[c].shift(gap)
-#             df[c+f"_diff{gap}"] = df[c].diff(gap)
-#     df = pd.get_dummies(df, columns=['season'], drop_first=True)  
-#     df.drop(columns=['day'], inplace=True
-```
-
-```{r}
 
 rcp_bs_v2 <-
   recipe(rainfall ~ ., data = train_set) |>
   update_role(id, new_role='ID')|>
-  step_rm(date,year_offset)|>
+  #step_rm(date,year_offset)|>
   step_impute_median(all_numeric_predictors())|> 
   step_mutate(
    temp_range= maxtemp - mintemp,
    heat_index= temparature+ 0.5 * (temparature- 10) * (humidity / 100),
    dew_dep= temparature - dewpoint,
-   cloud_sun_ratio = cloud / sunshine + 1,    
+   cloud_sun_ratio = sunshine/cloud,    
    pressure_change = c(NA,diff(pressure)),
    air_density = 1.225 , 
    wind_power = 0.5 * air_density * windspeed**3,
-   wind_direction_cat = cut(winddirection, 
-                            breaks=c(0, 90, 180, 270, 360), 
-                            labels=c("North", "East", "South", "West"), 
-                            include.lowest=True),
+   # wind_direction_cat = cut(winddirection, 
+   #                          breaks=c(0, 90, 180, 270, 360), 
+   #                          labels=c("North", "East", "South", "West"), 
+   #                          include.lowest=True),
    cloud_humidity = cloud + humidity,
    cloud_humidity_sunshine = cloud + humidity + sunshine,
    cloud_x_sunshine = cloud * sunshine,
    humidity_x_sunshine = humidity * sunshine)|>
   step_impute_median(all_numeric_predictors())|> 
-  step_log(all_numeric_predictors(),offset = 1, skip = FALSE) |>
+  step_YeoJohnson(all_numeric_predictors()) |>
   # process the logical feature to factor feature
   step_bin2factor(all_logical_predictors())|>
   # proceeding the convert the character feature to factorical feature
@@ -419,14 +360,15 @@ rcp_bs_v2 <-
 set.seed(1234)
 library(future)
 library(furrr)
-selected_rcps <- list(bs=rcp_bs_v0
+selected_rcps <- list(bs=rcp_bs_v0,
+                    v11= rcp_v11_boxcox#,
                       #bs_wd_smote=rcp_bs_v0_wd_smote
-                      #bs_v1=rcp_bs_v1#, # is significanttly change the data , and performance is descress . give it up.
+                      #bs_v1=rcp_bs_v1,#, # is significanttly change the data , and performance is descress . give it up.
                       #bs_v2=rcp_bs_v2
                       )
-#plan(multisession,workers = 5)
-#selected_rcps|>map(\(rcp_item) rcp_item|>prep()|>bake(new_data=train_set)|>summary())
-#plan(sequential)
+plan(multisession,workers = 5)
+# selected_rcps|>map(\(rcp_item) rcp_item|>prep()|>bake(new_data=train_set)|>summary())
+plan(sequential)
 ```
 
 ### 5. Model Specification ----
@@ -455,7 +397,10 @@ lgbm_eng<-
               #metric='roc_auc', 
               num_leaves = 20,
               counts = FALSE,
+              num_threads=12,
               metric = "auc",              # 优化目标
+              reg_alpha=0.01,
+              reg_lambda = 0.5,
               verbose=1) 
 
 rf_eng<- rand_forest( trees = 700, 
@@ -526,12 +471,12 @@ set.seed(1234)
 
 simple_wf_fit <- 
   workflow() |>
-  add_recipe(rcp_bs_v0_wd_smote) |>
-  add_model(svm_eng)|>
+  add_recipe(rcp_v11_boxcox) |>
+  add_model(lgbm_eng)|>
   # fit(train_set)
   fit_resamples(cv_folds,
   #  last_fit(df_split,
-          control = ctrl,
+          control = control_resamples(verbose=TRUE),
            metrics=rocauc_metrics)
 #plan(sequential)
  simple_wf_fit |> collect_metrics()
