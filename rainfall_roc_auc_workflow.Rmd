@@ -48,12 +48,6 @@ library(janitor)
 library(lubridate)
 ```
 
-```{r}
-#TODO, column 18,7 has some strange data leave it handle future. 71 lines in train, 159 line in test
-# row833049 column 18 is f has-ring is total wrong. 
-# so keep using readr:read_csv handling
-```
-
 ### loading data
 
 ```{r}

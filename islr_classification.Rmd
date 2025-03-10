@@ -77,7 +77,7 @@ df_split <- initial_split(train, prop = 0.8, strata = rainfall)
 train_set <- training(df_split)
 test_set <- testing(df_split)
 cv_folds <- vfold_cv(train_set,
-                     v = 10,
+                     v = 5,
                      repeats = 1,
                      strata = rainfall)
 ```
@@ -161,10 +161,41 @@ v2_rcp<- v0_rcp_bs |>
   #step_smote(rainfall,over_ratio = 1,skip = TRUE)|> # bad 
   
   check_missing(all_predictors())
+```
 
+
+```{r cache=FALSE}
+v3_rcp <- 
+  v0_rcp_bs |>
+  step_mutate(
+    cloud = cloud /100,
+    sunshine = sunshine/12,
+    #homidity = (humidity/100) 
+    #cloud_ss = cloud/(cloud+sunshine),
+    #est_temp = temparature / (0.5*(maxtemp + mintemp)),
+    #dewpoint_max = dewpoint - maxtemp,
+    #dewpoint_min = dewpoint - mintemp,
+    dewpoint_averge = dewpoint -temparature,
+    #ss2 = sunshine**2,
+    #cloud_humidity = cloud * humidity,
+    humidity = 1 / (1 + exp(-0.3*(humidity - 80)))
+    #dewpoint_max = dewpoint -maxtemp
+    #temp_range =maxtemp-mintemp 
+    )|>
+  #   step_bs(cloud, sunshine,  # 或指定变量名（如cloud, sunshine）
+  #   #num_breaks = 4#,            # 分箱数量（如3箱）
+  #   #options = list(cuts = "quantile")
+  # )|>
+  step_rm(id,day,dewpoint,winddirection,maxtemp,mintemp)|>
+  step_corr(all_numeric_predictors())|>
+  #step_dummy(all_nominal_predictors(),one_hot = TRUE)|>
+  #step_zv(all_predictors())|>
+  check_missing(all_predictors())
+v3_rcp |> prep()|>juice()
 tmp_rcps <- list(
-                 v1=v1_rcp,
-                 v2=v2_rcp,
+                 #v1=v1_rcp,
+                 #v2=v2_rcp,
+                 v3=v3_rcp,
                  v0=v0_rcp_bs
                  )
 
@@ -196,19 +227,25 @@ lgbm_eng<-
               reg_lambda = 0.5,
               verbose=1) 
 
-
-
 lr_w_fit <-
   workflow_set(preproc = tmp_rcps,
-              models=list(lgb=lgbm_eng))|>
+              models=list(
+                lgb=lgbm_eng,
+                glm=lr_spec
+                ))|>
   workflow_map(fn='fit_resamples',
                metrics=metric_set(roc_auc),
                #grid=lgbm_grid,
+               control = control_resamples(verbose=TRUE, save_workflow = TRUE),
                resamples=cv_folds,
                verbose=TRUE,
                )
-
 lr_w_fit |>
   collect_metrics()|>
   select(wflow_id, model,.metric,mean,n,std_err)
+# fit_eng_glm <- lr_w_fit|>extract_workflow('v3_glm') |>last_fit(df_split) |> extract_fit_engine()
+# fit_eng_glm |>glance()
+# fit_eng_glm |>tidy()
 ```
+
+
