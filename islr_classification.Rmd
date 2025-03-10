@@ -92,7 +92,7 @@ cv_folds <- vfold_cv(train_set,
 
 ```{r cache=FALSE}
 v0_rcp_bs <- 
-  recipe(rainfall ~ ., data = train_set) #|>
+  recipe(rainfall ~ ., data = train) #|>
 
 
 v1_rcp<- v0_rcp_bs |>
@@ -170,26 +170,14 @@ v3_rcp <-
   step_mutate(
     cloud = cloud /100,
     sunshine = sunshine/12,
-    #homidity = (humidity/100) 
-    #cloud_ss = cloud/(cloud+sunshine),
-    #est_temp = temparature / (0.5*(maxtemp + mintemp)),
-    #dewpoint_max = dewpoint - maxtemp,
-    #dewpoint_min = dewpoint - mintemp,
     dewpoint_averge = dewpoint -temparature,
-    #ss2 = sunshine**2,
-    #cloud_humidity = cloud * humidity,
-    humidity = 1 / (1 + exp(-0.3*(humidity - 80)))
-    #dewpoint_max = dewpoint -maxtemp
-    #temp_range =maxtemp-mintemp 
+    humidity_sig = 1 / (1 + exp(-0.2*(humidity - 80)))
     )|>
-  #   step_bs(cloud, sunshine,  # 或指定变量名（如cloud, sunshine）
-  #   #num_breaks = 4#,            # 分箱数量（如3箱）
-  #   #options = list(cuts = "quantile")
-  # )|>
+      step_bs(sunshine)|>
   step_rm(id,day,dewpoint,winddirection,maxtemp,mintemp)|>
   step_corr(all_numeric_predictors())|>
-  #step_dummy(all_nominal_predictors(),one_hot = TRUE)|>
-  #step_zv(all_predictors())|>
+  step_dummy(all_nominal_predictors(),one_hot = TRUE)|>
+  step_zv(all_predictors())|>
   check_missing(all_predictors())
 v3_rcp |> prep()|>juice()
 tmp_rcps <- list(
@@ -206,25 +194,25 @@ lr_spec <- logistic_reg(
   set_mode('classification')
 lgbm_eng<-
    parsnip::boost_tree(
-      trees = 500, # Number of trees
-      learn_rate = 0.01,
-      tree_depth =5,
-      loss_reduction = 0.001,
-      stop_iter = 50,  
-      #sample_size = 0.9, # Added sample_size
-      #tree_depth = tune(),
-      #mtry = 0.5,
-      min_n = 100
+      # trees = 500, # Number of trees
+      # learn_rate = 0.01,
+      # tree_depth =5,
+      # loss_reduction = 0.001,
+      # stop_iter = 50,  
+      sample_size = 0.6, # Added sample_size
+      # #tree_depth = tune(),
+      mtry = 7,
+      # min_n = 100
    ) |>
    set_mode("classification")|>
    set_engine("lightgbm",
-              #metric='roc_auc', 
-              num_leaves = 20,
-              counts = FALSE,
-              num_threads=12,
-              metric = "auc",              # 优化目标
-              reg_alpha=0.01,
-              reg_lambda = 0.5,
+              
+              # num_leaves = 20,
+              # counts = FALSE,
+               num_threads=12,
+               metric = "auc",              # 优化目标
+              # reg_alpha=0.01,
+              # reg_lambda = 0.5,
               verbose=1) 
 
 lr_w_fit <-
@@ -243,9 +231,9 @@ lr_w_fit <-
 lr_w_fit |>
   collect_metrics()|>
   select(wflow_id, model,.metric,mean,n,std_err)
-# fit_eng_glm <- lr_w_fit|>extract_workflow('v3_glm') |>last_fit(df_split) |> extract_fit_engine()
-# fit_eng_glm |>glance()
-# fit_eng_glm |>tidy()
+fit_eng_glm <- lr_w_fit|>extract_workflow('v3_glm') |>last_fit(df_split) |> extract_fit_engine()
+fit_eng_glm |>glance()
+fit_eng_glm |>tidy()
 ```
 
 

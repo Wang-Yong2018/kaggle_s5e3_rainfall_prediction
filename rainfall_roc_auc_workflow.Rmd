@@ -267,6 +267,33 @@ rcp_v11_boxcox <-
   check_missing(all_predictors())
 ```
 
+#### 4.12 v3 
+```{r}
+rcp_v12 <-
+  recipe(rainfall ~ ., data = train_set) |>
+  update_role(id, new_role='ID')|>
+  #step_rm(date,year_offset)|>
+  step_impute_median(all_numeric_predictors())|> 
+  step_mutate(
+    cloud = cloud /100,
+    sunshine = sunshine/12,
+    dewpoint_averge = dewpoint -temparature,
+    humidity_sig = 1 / (1 + exp(-0.2*(humidity - 80)))
+    )|>
+  step_rm(id,day,dewpoint,winddirection,maxtemp,mintemp)|>
+  #step_novel(all_nominal_predictors())|>
+ # step_unknown(all_nominal_predictors()) |>
+  #step_other(all_nominal_predictors())|>
+  #step_BoxCox(all_numeric_predictors())|> # bad
+  #step_dummy(all_nominal_predictors(),one_hot = TRUE) |>
+  #step_impute_median(all_numeric_predictors())|> 
+  step_normalize(all_numeric_predictors())|>
+  step_zv(all_predictors())|>
+  step_corr(all_predictors())|>
+  check_missing(all_predictors())
+ 
+```
+
 #### 4.1 v1 base_line - bad
 ```{r}
 rcp_bs_v1 <-
@@ -354,14 +381,15 @@ rcp_bs_v2 <-
 set.seed(1234)
 library(future)
 library(furrr)
-selected_rcps <- list(bs=rcp_bs_v0,
-                    v11= rcp_v11_boxcox#,
+selected_rcps <- list(#bs=rcp_bs_v0,
+                    #v11= rcp_v11_boxcox,
+                    v12=rcp_v12
                       #bs_wd_smote=rcp_bs_v0_wd_smote
                       #bs_v1=rcp_bs_v1,#, # is significanttly change the data , and performance is descress . give it up.
                       #bs_v2=rcp_bs_v2
                       )
 plan(multisession,workers = 5)
-# selected_rcps|>map(\(rcp_item) rcp_item|>prep()|>bake(new_data=train_set)|>summary())
+ #selected_rcps|>map(\(rcp_item) rcp_item|>prep()|>bake(new_data=train_set)|>summary())
 plan(sequential)
 ```
 
@@ -376,15 +404,15 @@ glm_eng <-
 
 lgbm_eng<-
    parsnip::boost_tree(
-      trees = 500, # Number of trees
-      #learn_rate = 0.01,
-      tree_depth =5,
-      loss_reduction = 0.001,
-      stop_iter = 50,  
-      #sample_size = 0.9, # Added sample_size
-      #tree_depth = tune(),
-      #mtry = 0.5,
-      min_n = 200
+      # trees = 500, # Number of trees
+      # #learn_rate = 0.01,
+      # tree_depth =5,
+      # loss_reduction = 0.001,
+      # stop_iter = 50,  
+      # #sample_size = 0.9, # Added sample_size
+      # #tree_depth = tune(),
+      # #mtry = 0.5,
+      # min_n = 100
    ) |>
    set_mode("classification")|>
    set_engine("lightgbm",
@@ -393,8 +421,8 @@ lgbm_eng<-
               counts = FALSE,
               num_threads=12,
               metric = "auc",              # 优化目标
-              reg_alpha=0.01,
-              reg_lambda = 0.5,
+              # reg_alpha=0.01,
+              # reg_lambda = 0.5,
               verbose=1) 
 
 rf_eng<- rand_forest( trees = 700, 
@@ -465,8 +493,8 @@ set.seed(1234)
 
 simple_wf_fit <- 
   workflow() |>
-  add_recipe(rcp_v11_boxcox) |>
-  add_model(lgbm_eng)|>
+  add_recipe(rcp_v12) |>
+  add_model(glm_eng)|>
   # fit(train_set)
   fit_resamples(cv_folds,
   #  last_fit(df_split,
@@ -484,7 +512,7 @@ simple_wf_fit <-
 ```{r}
 set.seed(1234)
 library(future)
-plan(multisession,workers = 12)
+plan(multisession,workers = 16)
 ctrl <- control_resamples(save_pred = TRUE, save_workflow = TRUE,verbose=TRUE)
 wfs_result <-
   workflow_set(preproc = selected_rcps,
@@ -754,7 +782,7 @@ plan(sequential)
 ### score submit
 ```{r}
 # submit latest submission.csv
-system('kaggle competitions submit -c playground-series-s5e3 -f submission.csv.zip -m "sample_submission"')
+system('kaggle competitions submit -c playground-series-s5e3 -f submission.csv.zip -m "fe 0310"')
 Sys.sleep(15)
 # get latest score 
 system('kaggle competitions submissions -q -c playground-series-s5e3')
