@@ -77,19 +77,14 @@ df_split <- initial_split(train, prop = 0.8, strata = rainfall)
 train_set <- training(df_split)
 test_set <- testing(df_split)
 cv_folds <- vfold_cv(train_set,
-                     v = 5,
+                     v = 10,
                      repeats = 1,
                      strata = rainfall)
 ```
 
 
-### logistic Regression
-
-```{r cache=FALSE}
-
-```
-
-
+## Recipes
+### rcp v0 v1
 ```{r cache=FALSE}
 v0_rcp_bs <- 
   recipe(rainfall ~ ., data = train) #|>
@@ -127,7 +122,7 @@ v1_rcp<- v0_rcp_bs |>
   check_missing(all_predictors())
 ```
 
-
+### rcp v2
 ```{r cache=FALSE}
 v2_rcp<- v0_rcp_bs |>
   step_rm(id)|>
@@ -163,7 +158,7 @@ v2_rcp<- v0_rcp_bs |>
   check_missing(all_predictors())
 ```
 
-
+### rcp v3
 ```{r cache=FALSE}
 v3_rcp <- 
   v0_rcp_bs |>
@@ -177,16 +172,73 @@ v3_rcp <-
   step_rm(id,day,dewpoint,winddirection,maxtemp,mintemp)|>
   step_corr(all_numeric_predictors())|>
   step_dummy(all_nominal_predictors(),one_hot = TRUE)|>
+  step_zv(all_predictors())
+#v3_rcp |> prep()|>juice()
+```
+### rcp v4
+```{r}
+v4_rcp <-
+  v0_rcp_bs |>
+  step_mutate(
+    cloud = cloud /100,
+    sunshine = sunshine/12,
+    dewpoint_averge = dewpoint -temparature,
+    humidity_sig = 1 / (1 + exp(-0.2*(humidity - 80)))
+    )|>
+  step_bs(sunshine)|>
+  step_lag(pressure,temparature,dewpoint_averge, windspeed)|>
+  step_impute_roll(all_numeric_predictors()) |>
+  step_rm(id,day,dewpoint,winddirection,maxtemp,mintemp)|>
+  step_dummy(all_nominal_predictors(),one_hot = TRUE)|>
+  step_corr(all_numeric_predictors())|>
   step_zv(all_predictors())|>
   check_missing(all_predictors())
-v3_rcp |> prep()|>juice()
+
+#v4_rcp |> prep() |> juice()
+
+```
+### rcp v5
+```{r}
+v5_rcp <-
+  v0_rcp_bs |>
+  step_mutate(
+    cloud = cloud /100,
+    sunshine = sunshine/12,
+    dewpoint_averge = dewpoint -temparature,
+    temp_range = maxtemp-mintemp,
+    humidity_sig = 1 / (1 + exp(-0.2*(humidity - 80)))
+    )|>
+  step_bs(sunshine)|>
+  step_lag(pressure,temparature,dewpoint_averge,temp_range, windspeed)|>
+  step_impute_roll(all_numeric_predictors()) |>
+  step_mutate(#month = round(day/12), 
+              week= round(day/52)
+              #,season=round(day/122)
+              ) |>
+  step_hyperbolic(winddirection,windspeed)|>
+  step_rm(id,day,dewpoint,winddirection,maxtemp,mintemp)|>
+  step_dummy(all_nominal_predictors(),one_hot = TRUE)|>
+  step_corr(all_numeric_predictors())|>
+  step_zv(all_predictors())|>
+  check_missing(all_predictors())
+
+#v4_rcp |> prep() |> juice()
+
+```
+
+```{r cache=FALSE}
 tmp_rcps <- list(
                  #v1=v1_rcp,
                  #v2=v2_rcp,
-                 v3=v3_rcp,
+                 #v3=v3_rcp,
+                 v4=v4_rcp,
+                 v5=v5_rcp,
                  v0=v0_rcp_bs
                  )
+```
 
+## workflow tune
+```{r cache=FALSE}
 lr_spec <- logistic_reg(
   #penalty = 0.01623777,mixture = 0.05
   )|>
@@ -231,7 +283,12 @@ lr_w_fit <-
 lr_w_fit |>
   collect_metrics()|>
   select(wflow_id, model,.metric,mean,n,std_err)
-fit_eng_glm <- lr_w_fit|>extract_workflow('v3_glm') |>last_fit(df_split) |> extract_fit_engine()
+fit_eng_glm <- 
+  lr_w_fit|>
+  extract_workflow('v5_glm') |>
+  last_fit(df_split) |>
+  extract_fit_engine()
+
 fit_eng_glm |>glance()
 fit_eng_glm |>tidy()
 ```

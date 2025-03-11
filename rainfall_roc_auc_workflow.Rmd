@@ -293,7 +293,33 @@ rcp_v12 <-
   check_missing(all_predictors())
  
 ```
-
+#### 4.13 v5 
+```{r}
+rcp_v13 <-
+   recipe(rainfall ~ ., data = train_set) |>
+  update_role(id, new_role='ID')|>
+  step_mutate(
+    cloud = cloud /100,
+    sunshine = sunshine/12,
+    dewpoint_averge = dewpoint -temparature,
+    temp_range = maxtemp-mintemp,
+    humidity_sig = 1 / (1 + exp(-0.2*(humidity - 80)))
+    )|>
+  step_bs(sunshine)|>
+  step_lag(pressure,temparature,dewpoint_averge,temp_range, windspeed)|>
+  step_impute_roll(all_numeric_predictors()) |>
+  step_mutate(#month = round(day/12), 
+              week= round(day/52)
+              #,season=round(day/122)
+              ) |>
+  step_hyperbolic(winddirection,windspeed)|>
+  step_rm(id,day,dewpoint,winddirection,maxtemp,mintemp)|>
+  step_dummy(all_nominal_predictors(),one_hot = TRUE)|>
+  step_corr(all_numeric_predictors())|>
+  step_zv(all_predictors())|>
+  check_missing(all_predictors())
+```
+    
 #### 4.1 v1 base_line - bad
 ```{r}
 rcp_bs_v1 <-
@@ -383,7 +409,8 @@ library(future)
 library(furrr)
 selected_rcps <- list(#bs=rcp_bs_v0,
                     #v11= rcp_v11_boxcox,
-                    v12=rcp_v12
+                    #v12=rcp_v12,
+                    v13=rcp_v13
                       #bs_wd_smote=rcp_bs_v0_wd_smote
                       #bs_v1=rcp_bs_v1,#, # is significanttly change the data , and performance is descress . give it up.
                       #bs_v2=rcp_bs_v2
@@ -469,7 +496,7 @@ selected_eng <- list(glm=glm_eng,
                      rf=rf_eng,
                      lgbm=lgbm_eng,
                      xgb=xgb_eng,
-                     c50=c50_eng,
+                     #c50=c50_eng,
                      earth= earth_eng,
                      #kknn=kknn_eng,
                      svm=svm_eng
@@ -491,8 +518,8 @@ set.seed(1234)
 
 simple_wf_fit <- 
   workflow() |>
-  add_recipe(rcp_v12) |>
-  add_model(glm_eng)|>
+  add_recipe(rcp_v13) |>
+  add_model(lgbm_eng)|>
   # fit(train_set)
   fit_resamples(cv_folds,
   #  last_fit(df_split,
@@ -538,7 +565,7 @@ library(future)
 combined_fit <-
   stacks::stacks()|>
   stacks::add_candidates(wfs_result)|>
-  stacks::blend_predictions()|>
+  stacks::blend_predictions(penalty = 10^seq(-2, -0.1, length = 20))|>
   stacks::fit_members()
 
 combined_fit|>
@@ -745,7 +772,7 @@ combined_test_result <-
   test_set %>%
   bind_cols(predict(combined_fit, 
                     new_data=test_set,type='prob'))
-combined_test_result|>roc_auc(rainfall, .pred_1,event_level = 'second')
+combined_test_result|>rocauc_metrics(rainfall, .pred_1,event_level = 'second')
 ```
 
 ### 11. Prepare Submission ----
@@ -791,6 +818,6 @@ system('kaggle competitions submissions -q -c playground-series-s5e3')
 
 ### notebook convert
 ```{r}
-# library(rmd2jupyter)
-# rmd2jupyter('rainfall_roc_auc_workflow.Rmd')
+ library(rmd2jupyter)
+ rmd2jupyter('rainfall_roc_auc_workflow.Rmd')
 ```
