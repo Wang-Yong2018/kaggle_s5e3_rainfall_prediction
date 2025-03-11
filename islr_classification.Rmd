@@ -87,7 +87,7 @@ cv_folds <- vfold_cv(train_set,
 ### rcp v0 v1
 ```{r cache=FALSE}
 v0_rcp_bs <- 
-  recipe(rainfall ~ ., data = train) #|>
+  recipe(rainfall ~ ., data = train_set) #|>
 
 
 v1_rcp<- v0_rcp_bs |>
@@ -231,8 +231,8 @@ tmp_rcps <- list(
                  #v1=v1_rcp,
                  #v2=v2_rcp,
                  #v3=v3_rcp,
-                 v4=v4_rcp,
-                 v5=v5_rcp,
+                 #v4=v4_rcp,
+                 #v5=v5_rcp,
                  v0=v0_rcp_bs
                  )
 ```
@@ -270,7 +270,7 @@ lgbm_eng<-
 lr_w_fit <-
   workflow_set(preproc = tmp_rcps,
               models=list(
-                lgb=lgbm_eng,
+                #lgb=lgbm_eng,
                 glm=lr_spec
                 ))|>
   workflow_map(fn='fit_resamples',
@@ -285,7 +285,7 @@ lr_w_fit |>
   select(wflow_id, model,.metric,mean,n,std_err)
 fit_eng_glm <- 
   lr_w_fit|>
-  extract_workflow('v5_glm') |>
+  extract_workflow('v0_glm') |>
   last_fit(df_split) |>
   extract_fit_engine()
 
