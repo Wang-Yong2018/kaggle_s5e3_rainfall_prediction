@@ -404,15 +404,15 @@ glm_eng <-
 
 lgbm_eng<-
    parsnip::boost_tree(
-      # trees = 500, # Number of trees
-      # #learn_rate = 0.01,
-      # tree_depth =5,
-      # loss_reduction = 0.001,
-      # stop_iter = 50,  
-      # #sample_size = 0.9, # Added sample_size
-      # #tree_depth = tune(),
-      # #mtry = 0.5,
-      # min_n = 100
+      trees = 500, # Number of trees
+      learn_rate = 0.01,
+      tree_depth =5,
+      loss_reduction = 0.001,
+      stop_iter = 50,
+      sample_size = 0.9, # Added sample_size
+      #tree_depth = tune(),
+      #mtry = 0.5,
+      min_n = 100
    ) |>
    set_mode("classification")|>
    set_engine("lightgbm",
@@ -426,10 +426,8 @@ lgbm_eng<-
               verbose=1) 
 
 rf_eng<- rand_forest( trees = 700, 
-                      #learn_rate = 0.01,
-                      #sample_size=0.8,
-                      #mtry=10, 
-                      min_n=200) |>
+                      #mtry=100, 
+                      min_n=100) |>
   set_engine("ranger",num.threads=4)|>
   set_mode("classification") 
 
@@ -469,9 +467,9 @@ kknn_eng <-
 
 selected_eng <- list(glm=glm_eng,
                      rf=rf_eng,
-                     #lgbm=lgbm_eng,
+                     lgbm=lgbm_eng,
                      xgb=xgb_eng,
-                     #c50=c50_eng,
+                     c50=c50_eng,
                      earth= earth_eng,
                      #kknn=kknn_eng,
                      svm=svm_eng
@@ -553,152 +551,152 @@ autoplot(combined_fit)
 ### 7. Tuning Grid ----
 #### tune lgbm
 ```{r}
-tune_lgbm_spec <-
-  boost_tree(
-    trees =tune(),             # Number of trees (boosting rounds)
-    #mtry = tune(),              # Number of features to consider at each split
-    learn_rate = 0.01,        # Learning rate (shrinkage)
-    tree_depth = tune(),         # Maximum depth of each tree
-    min_n = tune(),            # Minimum number of data points in a node
-    sample_size= tune(),
-    loss_reduction = 0.0001      # Complexity parameter
-  ) %>%
-  set_engine("lightgbm",
-             metric='auc',
-             num_leaves=tune(),
-             num_threads=8) %>%
-  set_mode("classification")
+# tune_lgbm_spec <-
+#   boost_tree(
+#     trees =tune(),             # Number of trees (boosting rounds)
+#     #mtry = tune(),              # Number of features to consider at each split
+#     learn_rate = 0.01,        # Learning rate (shrinkage)
+#     tree_depth = tune(),         # Maximum depth of each tree
+#     min_n = tune(),            # Minimum number of data points in a node
+#     sample_size= tune(),
+#     loss_reduction = 0.0001      # Complexity parameter
+#   ) %>%
+#   set_engine("lightgbm",
+#              metric='auc',
+#              num_leaves=tune(),
+#              num_threads=8) %>%
+#   set_mode("classification")
 ```
 
 
 ```{r}
-set.seed(1234)
-
-tune_lgbm_grid <-
-  tune_lgbm_spec %>%
-  extract_parameter_set_dials()|> 
-  update( trees = trees(range = c(700, 1500)),  # Wider range
-          #mtry = mtry(range = c(0.5, 0.9)),    # Wider range
-          #learn_rate = learn_rate(range = c(-3, -1)),  # Log scale
-          sample_size= sample_prop(range=c(0.6,0.9)),
-          tree_depth = tree_depth(range = c(6, 12)),  # Wider range
-          min_n = min_n(range = c(30, 100)),   # Wider range
-          #loss_reduction = loss_reduction(range = c(-4, -1)), # Wider range
-          num_leaves = num_leaves(range=c(31,100))            # 直接设定树数量范围
-          ) |>
-   grid_space_filling(size = 5)
-
-ctrl <- control_race(verbose_elim = TRUE,verbose=TRUE)
-tune_res <- 
-  workflow()|>
-  add_model(tune_lgbm_spec)|>
-  add_recipe(rcp_bs_v0_wd_smote)|>
-   tune_race_anova( resamples = cv_folds, grid=tune_lgbm_grid,control=ctrl)
+# set.seed(1234)
+# 
+# tune_lgbm_grid <-
+#   tune_lgbm_spec %>%
+#   extract_parameter_set_dials()|> 
+#   update( trees = trees(range = c(700, 1500)),  # Wider range
+#           #mtry = mtry(range = c(0.5, 0.9)),    # Wider range
+#           #learn_rate = learn_rate(range = c(-3, -1)),  # Log scale
+#           sample_size= sample_prop(range=c(0.6,0.9)),
+#           tree_depth = tree_depth(range = c(6, 12)),  # Wider range
+#           min_n = min_n(range = c(30, 100)),   # Wider range
+#           #loss_reduction = loss_reduction(range = c(-4, -1)), # Wider range
+#           num_leaves = num_leaves(range=c(31,100))            # 直接设定树数量范围
+#           ) |>
+#    grid_space_filling(size = 5)
+# 
+# ctrl <- control_race(verbose_elim = TRUE,verbose=TRUE)
+# tune_res <- 
+#   workflow()|>
+#   add_model(tune_lgbm_spec)|>
+#   add_recipe(rcp_bs_v0_wd_smote)|>
+#    tune_race_anova( resamples = cv_folds, grid=tune_lgbm_grid,control=ctrl)
 ```
 
 
 ```{r}
-tune_lgbm_grid <- grid_space_filling(
-  trees(range = c(500, 1000)),  # Wider range
-  #mtry = mtry(range = c(0.5, 0.9)),    # Wider range
-  learn_rate(range = c(-3, -1)),  # Log scale
-  tree_depth(range = c(5, 12)),  # Wider range
-  min_n(range = c(10, 60)),   # Wider range
-  loss_reduction(range = c(-4, -1)), # Wider range
-  num_leaves(range=c(31,100)),
-  size = 30 # Increased number of combinations to try
-)
-
-tune_lgbm_workflow <- 
-  workflow_set(preproc = selected_rcps,
-               models = list(lgb=tune_lgbm_spec) ) 
-
-# Tune the model using ANOVA Race
-tune_results <-  tune_lgbm_workflow |>
-  workflow_map(fn='tune_race_anova',
-               resamples=cv_folds,
-               seed=1234,
-               grid=tune_lgbm_grid,
-               metrics=rocauc_metrics,
-               control = control_race(save_pred = TRUE, save_workflow = TRUE,verbose=TRUE) # Show progress
-               )
-tune_results|>rank_results()
+# tune_lgbm_grid <- grid_space_filling(
+#   trees(range = c(500, 1000)),  # Wider range
+#   #mtry = mtry(range = c(0.5, 0.9)),    # Wider range
+#   learn_rate(range = c(-3, -1)),  # Log scale
+#   tree_depth(range = c(5, 12)),  # Wider range
+#   min_n(range = c(10, 60)),   # Wider range
+#   loss_reduction(range = c(-4, -1)), # Wider range
+#   num_leaves(range=c(31,100)),
+#   size = 30 # Increased number of combinations to try
+# )
+# 
+# tune_lgbm_workflow <- 
+#   workflow_set(preproc = selected_rcps,
+#                models = list(lgb=tune_lgbm_spec) ) 
+# 
+# # Tune the model using ANOVA Race
+# tune_results <-  tune_lgbm_workflow |>
+#   workflow_map(fn='tune_race_anova',
+#                resamples=cv_folds,
+#                seed=1234,
+#                grid=tune_lgbm_grid,
+#                metrics=rocauc_metrics,
+#                control = control_race(save_pred = TRUE, save_workflow = TRUE,verbose=TRUE) # Show progress
+#                )
+# tune_results|>rank_results()
 
 ```
 
 
 #### tune glmnet
 ```{r}
-
-glmnet_recipe <- rcp_bs_v0_wd_smote
-
-glmnet_spec <- 
-  multinom_reg(penalty = tune(), mixture = tune()) %>% 
-  set_mode("classification") %>% 
-  set_engine("glmnet") 
-
-glmnet_workflow <- 
-  workflow() %>% 
-  add_recipe(glmnet_recipe) %>% 
-  add_model(glmnet_spec) 
-
-glmnet_grid <- tidyr::crossing(penalty = 10^seq(-4, -1, length.out = 20), 
-                               mixture = c(0.05, 0.2, 0.4, 0.6, 0.8, 1)) 
-
-
-glmnet_tune <- 
-  tune_grid(glmnet_workflow, resamples =cv_folds, grid = glmnet_grid,
-            control=control_grid(save_pred = TRUE, 
-                                 verbose = TRUE,
-                                 allow_par = F)) # Keep predictions
-
-glmnet_tune |>show_best()
-```
-#### tune lgbm
-```{r}
-lgbm_recipe <- rcp_bs_v0_wd_smote 
-
-lgbm_spec <-  
-  boost_tree(
-    trees = tune(),
-    tree_depth = tune(),
-    learn_rate = tune(),
-    mtry = tune(),
-    min_n = tune(), 
-    loss_reduction = numeric() ) |> 
-  set_engine("lightgbm",
-             max_bin=tune(),
-              # reg_lambda = tune(),  
-              # max_bin = tune(),
-              # min_sum_hessian_in_leaf = tune(),
-             #bagging_fraction = tune()
-            )|>
-  set_mode("classification")
-
-lgbm_workflow <- 
-  workflow() |> 
-  add_recipe(lgbm_recipe) |>
-  add_model(lgbm_spec) 
-lgbm_grid <- lgbm_workflow |>
-  extract_parameter_set_dials( ) |>
-  update(
-    trees= trees(range=c(300,700)),
-    tree_depth = tree_depth(range = c(3, 8)),  # 原默认范围可能更宽，此处缩小
-    learn_rate = learn_rate(range = c(-2, -1)), # 指数范围：0.01 ~ 0.1
-    mtry = mtry(range=c(5,11)),
-    max_bin = integer(c(31,128)),
-    min_n = min_n(range = c(10, 50))
-  )|>
-  grid_space_filling(size=5)
-
-set.seed(1234)
-lgbm_tune <-
-  tune_grid(lgbm_workflow, 
-            resamples = cv_folds, 
-            grid =lgbm_grid,
-            control=control_race(save_pred = TRUE, save_workflow = TRUE,verbose=TRUE))
-
-lgbm_tune |> show_best()
+# 
+# glmnet_recipe <- rcp_bs_v0_wd_smote
+# 
+# glmnet_spec <- 
+#   multinom_reg(penalty = tune(), mixture = tune()) %>% 
+#   set_mode("classification") %>% 
+#   set_engine("glmnet") 
+# 
+# glmnet_workflow <- 
+#   workflow() %>% 
+#   add_recipe(glmnet_recipe) %>% 
+#   add_model(glmnet_spec) 
+# 
+# glmnet_grid <- tidyr::crossing(penalty = 10^seq(-4, -1, length.out = 20), 
+#                                mixture = c(0.05, 0.2, 0.4, 0.6, 0.8, 1)) 
+# 
+# 
+# glmnet_tune <- 
+#   tune_grid(glmnet_workflow, resamples =cv_folds, grid = glmnet_grid,
+#             control=control_grid(save_pred = TRUE, 
+#                                  verbose = TRUE,
+#                                  allow_par = F)) # Keep predictions
+# 
+# glmnet_tune |>show_best()
+# ```
+# #### tune lgbm
+# ```{r}
+# lgbm_recipe <- rcp_bs_v0_wd_smote 
+# 
+# lgbm_spec <-  
+#   boost_tree(
+#     trees = tune(),
+#     tree_depth = tune(),
+#     learn_rate = tune(),
+#     mtry = tune(),
+#     min_n = tune(), 
+#     loss_reduction = numeric() ) |> 
+#   set_engine("lightgbm",
+#              max_bin=tune(),
+#               # reg_lambda = tune(),  
+#               # max_bin = tune(),
+#               # min_sum_hessian_in_leaf = tune(),
+#              #bagging_fraction = tune()
+#             )|>
+#   set_mode("classification")
+# 
+# lgbm_workflow <- 
+#   workflow() |> 
+#   add_recipe(lgbm_recipe) |>
+#   add_model(lgbm_spec) 
+# lgbm_grid <- lgbm_workflow |>
+#   extract_parameter_set_dials( ) |>
+#   update(
+#     trees= trees(range=c(300,700)),
+#     tree_depth = tree_depth(range = c(3, 8)),  # 原默认范围可能更宽，此处缩小
+#     learn_rate = learn_rate(range = c(-2, -1)), # 指数范围：0.01 ~ 0.1
+#     mtry = mtry(range=c(5,11)),
+#     max_bin = integer(c(31,128)),
+#     min_n = min_n(range = c(10, 50))
+#   )|>
+#   grid_space_filling(size=5)
+# 
+# set.seed(1234)
+# lgbm_tune <-
+#   tune_grid(lgbm_workflow, 
+#             resamples = cv_folds, 
+#             grid =lgbm_grid,
+#             control=control_race(save_pred = TRUE, save_workflow = TRUE,verbose=TRUE))
+# 
+# lgbm_tune |> show_best()
 ```
 
 ### 8. Cross-Validation ----
@@ -793,6 +791,6 @@ system('kaggle competitions submissions -q -c playground-series-s5e3')
 
 ### notebook convert
 ```{r}
-library(rmd2jupyter)
-rmd2jupyter('rainfall_roc_auc_workflow.Rmd')
+# library(rmd2jupyter)
+# rmd2jupyter('rainfall_roc_auc_workflow.Rmd')
 ```
