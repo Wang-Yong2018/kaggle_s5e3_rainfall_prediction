@@ -200,6 +200,7 @@ list(tr=train,te=test)|>
   ggplot(aes(x=score,fill=source)) +
   geom_density()+labs(title='outliers compare')
 ts_od <- train  |> get_outliers() |> bind_cols(train)
+
 ```
 
 
@@ -221,7 +222,9 @@ ts_od <- train  |> get_outliers() |> bind_cols(train)
 set.seed(1234)
 #train <- ts_df |> as_tibble() |>filter(source=='train')|>select(-source)
 #df_split <- initial_time_split(train, prop = 0.8)
-df_split <- initial_split(train, prop = 0.8, strata = rainfall)
+od_train <- train |>get_outliers()  |>bind_cols(train)
+od_test <- test|>get_outliers()  |>bind_cols(test)
+df_split <- initial_split(od_train, prop = 0.8, strata = rainfall)
 train_set <- training(df_split)
 test_set <- testing(df_split)
 cv_folds <- vfold_cv(train_set,
@@ -240,9 +243,7 @@ rcp_bs_v0 <-
   update_role(id, new_role='ID')|>
   #step_rm(date,year_offset)|>
   step_impute_median(all_numeric_predictors())|> 
-  step_interact(terms=~dewpoint:maxtemp) |>
-  step_interact(terms=~humidity:sunshine) |>
-  step_interact(terms=~cloud:sunshine) |>
+
   step_YeoJohnson(all_numeric_predictors()) |>
   # process the logical feature to factor feature
   
@@ -330,12 +331,12 @@ rcp_v13 <-
     sunshine = sunshine/12,
     dewpoint_averge = dewpoint -temparature,
     temp_range = maxtemp-mintemp,
-    humidity_sig = 1 / (1 + exp(-0.2*(humidity - 80)))
+  #  humidity_sig = 1 / (1 + exp(-0.2*(humidity - 80)))
     )|>
- 
-  #step_interact(terms=~dewpoint:maxtemp) |>
-  #step_interact(terms=~humidity:sunshine) |>
-  #step_interact(terms=~cloud:sunshine) |>
+
+  step_interact(terms=~dewpoint:maxtemp) |>
+  step_interact(terms=~humidity:sunshine) |>
+  step_interact(terms=~cloud:sunshine) |>
    step_bs(sunshine)|>
   step_lag(pressure,temparature,dewpoint_averge,temp_range, windspeed)|>
   step_impute_roll(all_numeric_predictors()) |>
@@ -436,10 +437,10 @@ rcp_bs_v2 <-
 set.seed(1234)
 library(future)
 library(furrr)
-selected_rcps <- list(bs=rcp_bs_v0#,
+selected_rcps <- list(bs=rcp_bs_v0,
                     #v11= rcp_v11_boxcox,
                     #v12=rcp_v12,
-                    #v13=rcp_v13
+                    v13=rcp_v13
                       #bs_wd_smote=rcp_bs_v0_wd_smote
                       #bs_v1=rcp_bs_v1,#, # is significanttly change the data , and performance is descress . give it up.
                       #bs_v2=rcp_bs_v2
@@ -548,7 +549,7 @@ set.seed(1234)
 simple_wf_fit <- 
   workflow() |>
   add_recipe(rcp_v13) |>
-  add_model(lgbm_eng)|>
+  add_model(glm_eng)|>
   # fit(train_set)
   fit_resamples(cv_folds,
   #  last_fit(df_split,
@@ -573,7 +574,7 @@ wfs_result <-
                models = selected_eng,
                cross=TRUE) |>
   workflow_map(fn='fit_resamples',
-               resamples =cv_folds,
+               resamples = vfold_cv(od_train, v = 10,strata = rainfall) ,
                metrics =rocauc_metrics,
                control = ctrl
                )
@@ -595,7 +596,7 @@ library(future)
 combined_fit <-
   stacks::stacks()|>
   stacks::add_candidates(wfs_result)|>
-  stacks::blend_predictions(penalty = 10^seq(-2, -0.1, length = 20))|>
+  stacks::blend_predictions()|>
   stacks::fit_members()
 
 combined_fit|>
@@ -814,7 +815,7 @@ plan(multisession,workers = 12)
 final_model <- combined_fit#simple_wf_fit|>extract_workflow()
 #final_model <- simple_wf_fit|>extract_workflow()
 final_predictions <- final_model |>
-   predict(new_data = test,
+   predict(new_data = od_test,
            type='prob') 
 plan(sequential)
 
@@ -837,7 +838,7 @@ plan(sequential)
 ### score submit
 ```{r}
 # submit latest submission.csv
-system('kaggle competitions submit -c playground-series-s5e3 -f submission.csv.zip -m "fe 0324 interact"')
+system('kaggle competitions submit -c playground-series-s5e3 -f submission.csv.zip -m "fe 0324 od + interact + workflowmap with full od_train"')
 Sys.sleep(15)
 # get latest score 
 system('kaggle competitions submissions -q -c playground-series-s5e3')
