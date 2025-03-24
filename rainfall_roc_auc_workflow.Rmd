@@ -179,6 +179,28 @@ trans_tsibble <-function(){
 #   mutate(pct_change= (train-test)/train)
 ```
 
+### outlier detect base on train & test
+```{r fig.height=3, fig.width=5}
+library(applicable)
+library(isotree)
+
+get_outliers <- function(od_target){
+  remove_cols <- c('id','rainfall')
+  od_tr <- train |> select(-any_of(remove_cols))
+  od_te <- od_target |>  select(-any_of(remove_cols))
+  if_mod <- apd_isolation(od_tr, ntrees = 10, nthreads = 1)
+  od_score <- score(if_mod, od_te)
+  
+  return(od_score)
+}
+
+list(tr=train,te=test)|>
+  map_dfr(\(data) get_outliers(data),
+          .id='source') |>
+  ggplot(aes(x=score,fill=source)) +
+  geom_density()+labs(title='outliers compare')
+ts_od <- train  |> get_outliers() |> bind_cols(train)
+```
 
 
 ## coding
@@ -218,8 +240,12 @@ rcp_bs_v0 <-
   update_role(id, new_role='ID')|>
   #step_rm(date,year_offset)|>
   step_impute_median(all_numeric_predictors())|> 
+  step_interact(terms=~dewpoint:maxtemp) |>
+  step_interact(terms=~humidity:sunshine) |>
+  step_interact(terms=~cloud:sunshine) |>
   step_YeoJohnson(all_numeric_predictors()) |>
   # process the logical feature to factor feature
+  
   step_bin2factor(all_logical_predictors())|>
   # proceeding the convert the character feature to factorical feature
   step_novel(all_nominal_predictors())|>
@@ -299,25 +325,27 @@ rcp_v13 <-
    recipe(rainfall ~ ., data = train_set) |>
   update_role(id, new_role='ID')|>
   step_mutate(
+    week= round(day/52),
     cloud = cloud /100,
     sunshine = sunshine/12,
     dewpoint_averge = dewpoint -temparature,
     temp_range = maxtemp-mintemp,
     humidity_sig = 1 / (1 + exp(-0.2*(humidity - 80)))
     )|>
-  step_bs(sunshine)|>
+ 
+  #step_interact(terms=~dewpoint:maxtemp) |>
+  #step_interact(terms=~humidity:sunshine) |>
+  #step_interact(terms=~cloud:sunshine) |>
+   step_bs(sunshine)|>
   step_lag(pressure,temparature,dewpoint_averge,temp_range, windspeed)|>
   step_impute_roll(all_numeric_predictors()) |>
-  step_mutate(#month = round(day/12), 
-              week= round(day/52)
-              #,season=round(day/122)
-              ) |>
   step_hyperbolic(winddirection,windspeed)|>
   step_rm(id,day,dewpoint,winddirection,maxtemp,mintemp)|>
   step_dummy(all_nominal_predictors(),one_hot = TRUE)|>
   step_corr(all_numeric_predictors())|>
   step_zv(all_predictors())|>
   check_missing(all_predictors())
+rcp_v13 |>prep()|>juice()
 ```
     
 #### 4.1 v1 base_line - bad
@@ -345,6 +373,7 @@ rcp_bs_v1 <-
    humidity_x_sunshine = humidity * sunshine)|>
   #step_rm(date,year_offset)|>
   step_impute_median(all_numeric_predictors())|> 
+  
   step_YeoJohnson(all_numeric_predictors()) |>
   # process the logical feature to factor feature
   step_bin2factor(all_logical_predictors())|>
@@ -407,10 +436,10 @@ rcp_bs_v2 <-
 set.seed(1234)
 library(future)
 library(furrr)
-selected_rcps <- list(#bs=rcp_bs_v0,
+selected_rcps <- list(bs=rcp_bs_v0#,
                     #v11= rcp_v11_boxcox,
                     #v12=rcp_v12,
-                    v13=rcp_v13
+                    #v13=rcp_v13
                       #bs_wd_smote=rcp_bs_v0_wd_smote
                       #bs_v1=rcp_bs_v1,#, # is significanttly change the data , and performance is descress . give it up.
                       #bs_v2=rcp_bs_v2
@@ -541,7 +570,8 @@ plan(multisession,workers = 16)
 ctrl <- control_resamples(save_pred = TRUE, save_workflow = TRUE,verbose=TRUE)
 wfs_result <-
   workflow_set(preproc = selected_rcps,
-               models = selected_eng ) |>
+               models = selected_eng,
+               cross=TRUE) |>
   workflow_map(fn='fit_resamples',
                resamples =cv_folds,
                metrics =rocauc_metrics,
@@ -807,7 +837,7 @@ plan(sequential)
 ### score submit
 ```{r}
 # submit latest submission.csv
-system('kaggle competitions submit -c playground-series-s5e3 -f submission.csv.zip -m "fe 0310"')
+system('kaggle competitions submit -c playground-series-s5e3 -f submission.csv.zip -m "fe 0324 interact"')
 Sys.sleep(15)
 # get latest score 
 system('kaggle competitions submissions -q -c playground-series-s5e3')
